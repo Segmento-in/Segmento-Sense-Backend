@@ -1,52 +1,66 @@
-# backend.py
 import re
 import json
 import pandas as pd
 import fitz  # PyMuPDF
 import nltk
 import io
+import os
+import pickle
+import base64
 from typing import Dict, List, Any
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
+from bs4 import BeautifulSoup 
 
-# --- IMPORT MODULES ---
-from spacy_model import PiiSpacyAnalyzer
-from inspector import ModelInspector
+# --- IMPORT CLASSIFIERS ---
+from classifier_manager.spacy_model import PiiSpacyAnalyzer
+from classifier_manager.presidio_model import PiiPresidioAnalyzer
+from classifier_manager.gliner_model import PiiGlinerAnalyzer
+from classifier_manager.inspector import ModelInspector
+
+# --- IMPORT FILE HANDLERS ---
+from file_handlers.ocr_engine import OcrEngine
+from file_handlers.avro_handler import AvroHandler
+from file_handlers.parquet_handler import ParquetHandler
+from file_handlers.json_handler import JsonHandler
+from file_handlers.pdf_handler import PdfHandler
+
+# --- IMPORT CONNECTORS ---
+from connectors.postgres_handler import PostgresHandler
+from connectors.mysql_handler import MysqlHandler
+from connectors.gmail_handler import GmailHandler
+from connectors.drive_handler import DriveHandler
+from connectors.aws_s3_handler import S3Handler
+from connectors.azure_handler import AzureBlobHandler
+from connectors.gcp_storage_handler import GcpStorageHandler
+from connectors.slack_handler import SlackHandler           # <--- NEW
+from connectors.confluence_handler import ConfluenceHandler # <--- NEW
 
 # --- DEPENDENCY CHECKS ---
 try:
     from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseDownload
-    from google.oauth2 import service_account
     GOOGLE_AVAILABLE = True
 except ImportError:
     GOOGLE_AVAILABLE = False
     print("Google Libraries not installed.")
-
 try:
     import pymongo
     MONGO_AVAILABLE = True
-except ImportError:
-    MONGO_AVAILABLE = False
-    print("PyMongo not installed.")
-
-try:
-    import pyarrow
-    PARQUET_AVAILABLE = True
-except ImportError:
-    PARQUET_AVAILABLE = False
-    print("PyArrow not installed.")
-
-# --- AWS S3 IMPORT (NEW) ---
+except: MONGO_AVAILABLE = False
 try:
     import boto3
-    from botocore.exceptions import NoCredentialsError, ClientError
     AWS_AVAILABLE = True
-except ImportError:
-    AWS_AVAILABLE = False
-    print("Boto3 not installed. AWS S3 features will fail.")
+except: AWS_AVAILABLE = False
+try:
+    from azure.storage.blob import BlobServiceClient
+    AZURE_AVAILABLE = True
+except: AZURE_AVAILABLE = False
+try:
+    from google.cloud import storage
+    GCS_AVAILABLE = True
+except: GCS_AVAILABLE = False
 
-# --- NLTK SETUP ---
+# NLTK Setup
 try:
     nltk.data.find('tokenizers/punkt')
 except LookupError:
@@ -59,10 +73,9 @@ except LookupError:
 class RegexClassifier:
     def __init__(self):
         self.colors = {
-            "EMAIL": (136, 238, 255), "FIRST_NAME": (170, 255, 170), "LAST_NAME": (170, 255, 170),
-            "PHONE": (255, 170, 170), "SSN": (255, 204, 170), "CREDIT_CARD": (255, 238, 170),
-            "LOCATION": (200, 170, 255), "AADHAAR_IND": (255, 150, 255), "ORG": (255, 255, 150), 
-            "DEFAULT": (224, 224, 224)
+            "EMAIL": "#8ef", "FIRST_NAME": "#af9", "LAST_NAME": "#af9",
+            "PHONE": "#faa", "SSN": "#fca", "CREDIT_CARD": "#fea",
+            "LOCATION": "#dcf", "ORG": "#ffecb3", "DEFAULT": "#e0e0e0"
         }
         
         self.patterns: Dict[str, str] = {
@@ -74,67 +87,121 @@ class RegexClassifier:
             "PAN_IND": r"\b[A-Z]{5}\d{4}[A-Z]{1}\b",
         }
 
-        # Initialize Modules
+        # 1. Classifiers
         self.spacy_analyzer = PiiSpacyAnalyzer()
+        self.presidio_analyzer = PiiPresidioAnalyzer()
+        self.gliner_analyzer = PiiGlinerAnalyzer()
         self.inspector = ModelInspector()
+        
+        # 2. File Handlers
+        self.ocr_engine = OcrEngine()
+        self.avro_handler = AvroHandler()
+        self.parquet_handler = ParquetHandler()
+        self.json_handler = JsonHandler()
+        self.pdf_handler = PdfHandler(self.ocr_engine)
+
+        # 3. Connectors
+        self.pg_handler = PostgresHandler()
+        self.mysql_handler = MysqlHandler()
+        self.gmail_handler = GmailHandler()
+        self.drive_handler = DriveHandler()
+        self.s3_handler = S3Handler()
+        self.azure_handler = AzureBlobHandler()
+        self.gcp_handler = GcpStorageHandler()
+        self.slack_handler = SlackHandler()           # <--- Init
+        self.confluence_handler = ConfluenceHandler() # <--- Init
 
     def list_patterns(self): return self.patterns
     def add_pattern(self, n, r): self.patterns[n.upper()] = r
     def remove_pattern(self, n): self.patterns.pop(n.upper(), None)
 
-    # --- DETECTION ENGINES ---
+    # --- CORE ANALYSIS ---
     def scan_with_regex(self, text: str) -> List[dict]:
         matches = []
         for label, regex in self.patterns.items():
-            for match in re.finditer(regex, text):
-                matches.append({"label": label, "text": match.group(), "start": match.start(), "end": match.end()})
+            for m in re.finditer(regex, text):
+                matches.append({"label": label, "text": m.group(), "start": m.start(), "end": m.end(), "source": "Regex"})
         return matches
 
     def scan_with_nltk(self, text: str) -> List[dict]:
         detections = []
         try:
-            tokens = nltk.word_tokenize(text)
-            chunked = nltk.ne_chunk(nltk.pos_tag(tokens), binary=False)
-            current_pos = 0 
-            for chunk in chunked:
+            for chunk in nltk.ne_chunk(nltk.pos_tag(nltk.word_tokenize(text))):
                 if hasattr(chunk, 'label') and chunk.label() in ['PERSON', 'GPE']:
                     val = " ".join(c[0] for c in chunk)
-                    start_idx = text.find(val, current_pos)
-                    label = "LOCATION" if chunk.label() == 'GPE' else "FIRST_NAME" 
-                    if start_idx != -1:
-                        detections.append({"label": label, "text": val, "start": start_idx, "end": start_idx + len(val)})
-                        current_pos = start_idx + len(val)
+                    start = text.find(val)
+                    if start != -1:
+                        detections.append({
+                            "label": "LOCATION" if chunk.label() == 'GPE' else "FIRST_NAME",
+                            "text": val, "start": start, "end": start+len(val), "source": "NLTK"
+                        })
         except: pass 
         return detections
 
     def analyze_text_hybrid(self, text: str) -> List[dict]:
+        if not text: return []
         all_matches = []
         all_matches.extend(self.scan_with_regex(text))
         all_matches.extend(self.scan_with_nltk(text))
         all_matches.extend(self.spacy_analyzer.scan(text))
+        all_matches.extend(self.presidio_analyzer.scan(text))
+        all_matches.extend(self.gliner_analyzer.scan(text))
         
         all_matches.sort(key=lambda x: x['start'])
-        
-        unique_matches = []
+        unique = []
         if not all_matches: return []
         curr = all_matches[0]
-        for next_match in all_matches[1:]:
-            if next_match['start'] < curr['end']:
-                if len(next_match['text']) > len(curr['text']):
-                    curr = next_match
+        for next_m in all_matches[1:]:
+            if next_m['start'] < curr['end']:
+                if len(next_m['text']) > len(curr['text']):
+                    curr = next_m
             else:
-                unique_matches.append(curr)
-                curr = next_match
-        unique_matches.append(curr)
-        return unique_matches
+                unique.append(curr)
+                curr = next_m
+        unique.append(curr)
+        return unique
 
-    def run_full_inspection(self, text: str) -> pd.DataFrame:
-        r_matches = self.scan_with_regex(text)
-        n_matches = self.scan_with_nltk(text)
-        s_matches = self.spacy_analyzer.scan(text)
-        return self.inspector.compare_models(r_matches, n_matches, s_matches)
+    def run_full_inspection(self, text: str):
+        return self.inspector.compare_models(
+            self.scan_with_regex(text),
+            self.scan_with_nltk(text),
+            self.spacy_analyzer.scan(text),
+            self.presidio_analyzer.scan(text),
+            self.gliner_analyzer.scan(text)
+        )
 
-    # --- SUMMARY & VISUALS ---
+    # --- WRAPPERS FOR UI ---
+    def get_json_data(self, file_obj) -> pd.DataFrame:
+        return self.json_handler.read_file(file_obj)
+
+    def get_pdf_page_text(self, file_bytes, page_num):
+        return self.pdf_handler.get_page_text(file_bytes, page_num)
+
+    def get_pdf_total_pages(self, file_bytes) -> int:
+        return self.pdf_handler.get_total_pages(file_bytes)
+
+    def get_labeled_pdf_image(self, file_bytes, page_num):
+        text = self.get_pdf_page_text(file_bytes, page_num)
+        matches = self.analyze_text_hybrid(text)
+        return self.pdf_handler.render_labeled_image(file_bytes, page_num, matches, self.colors)
+
+    def get_avro_data(self, file_bytes) -> pd.DataFrame:
+        return self.avro_handler.convert_to_dataframe(file_bytes)
+    
+    def get_parquet_data(self, file_bytes) -> pd.DataFrame:
+        return self.parquet_handler.convert_to_dataframe(file_bytes)
+        
+    def get_ocr_text_from_image(self, file_bytes) -> str:
+        return self.ocr_engine.extract_text(file_bytes)
+
+    def get_pii_counts_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        text = " ".join(df.astype(str).values.flatten())
+        matches = self.analyze_text_hybrid(str(text))
+        if not matches: return pd.DataFrame(columns=["PII Type", "Count"])
+        counts = {}
+        for m in matches: counts[m['label']] = counts.get(m['label'], 0) + 1
+        return pd.DataFrame(list(counts.items()), columns=["PII Type", "Count"])
+    
     def get_pii_counts(self, text: str) -> pd.DataFrame:
         matches = self.analyze_text_hybrid(str(text))
         if not matches: return pd.DataFrame(columns=["PII Type", "Count"])
@@ -142,201 +209,78 @@ class RegexClassifier:
         for m in matches: counts[m['label']] = counts.get(m['label'], 0) + 1
         return pd.DataFrame(list(counts.items()), columns=["PII Type", "Count"])
 
-    def get_pii_counts_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        full_text = " ".join(df.astype(str).values.flatten())
-        return self.get_pii_counts(full_text)
-
-    def mask_pii(self, text: str) -> str:
-        text = str(text)
-        matches = self.analyze_text_hybrid(text)
-        matches.sort(key=lambda x: x['start'], reverse=True)
-        for m in matches:
-            masked_val = "******"
-            if "<span" not in text[m['start']:m['end']]:
-                text = text[:m['start']] + masked_val + text[m['end']:]
-        return text
-
     def mask_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        def safe_mask(val):
-            if isinstance(val, (list, dict, tuple, set)): return self.mask_pii(str(val))
-            if pd.isna(val): return val
-            return self.mask_pii(str(val))
-        return df.map(safe_mask)
-
-    def get_labeled_pdf_image(self, file_bytes, page_num: int):
-        try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            if not (0 <= page_num < len(doc)): return None
-            page = doc[page_num]
-            text = page.get_text("text")
-            matches = self.analyze_text_hybrid(text)
-            for m in matches:
-                color_norm = tuple(c/255 for c in self.colors.get(m['label'], self.colors["DEFAULT"]))
-                quads = page.search_for(m['text'])
-                for quad in quads:
-                    page.draw_rect(quad, color=color_norm, fill=color_norm, fill_opacity=0.4)
-                    page.insert_text(fitz.Point(quad.x0, quad.y0-2), m['label'], fontsize=6, color=(0,0,0))
-            return page.get_pixmap(matrix=fitz.Matrix(2, 2)).tobytes("png")
-        except: return None
-
-    def scan_dataframe_with_html(self, df: pd.DataFrame) -> pd.DataFrame:
-        def highlight_html(text):
+        def mask_text(text):
             text = str(text)
             matches = self.analyze_text_hybrid(text)
             matches.sort(key=lambda x: x['start'], reverse=True)
-            hex_map = {"EMAIL": "#8ef", "PHONE": "#faa", "SSN": "#fca", "CREDIT_CARD": "#fea", "FIRST_NAME": "#af9", "LAST_NAME": "#af9", "LOCATION": "#dcf", "AADHAAR_IND": "#f9f", "ORG": "#ffecb3", "DEFAULT": "#e0e0e0"}
+            for m in matches:
+                if "***" not in text[m['start']:m['end']]:
+                    text = text[:m['start']] + "******" + text[m['end']:]
+            return text
+        return df.map(lambda x: mask_text(x) if isinstance(x, (str, int, float)) else x)
+
+    def scan_dataframe_with_html(self, df: pd.DataFrame) -> pd.DataFrame:
+        def highlight(text):
+            text = str(text)
+            matches = self.analyze_text_hybrid(text)
+            matches.sort(key=lambda x: x['start'], reverse=True)
             for m in matches:
                 if "<span" in text[m['start']:m['end']]: continue
-                color = hex_map.get(m['label'], "#e0e0e0")
-                tag = f'<span style="background-color: {color}; padding: 0 2px; border-radius: 3px; border: 1px solid #ccc;">{m["text"]}</span>'
-                text = text[:m['start']] + tag + text[m['end']:]
+                color = self.colors.get(m['label'], self.colors["DEFAULT"])
+                replacement = f'<span style="background:{color}; padding:2px; border-radius:4px;">{m["text"]}</span>'
+                text = text[:m['start']] + replacement + text[m['end']:]
             return text
-        def safe_highlight(val):
-             if isinstance(val, (list, dict)): return highlight_html(str(val))
-             if pd.isna(val): return val
-             return highlight_html(val)
-        return df.map(safe_highlight)
+        return df.map(lambda x: highlight(x) if isinstance(x, str) else x)
 
-    def get_data_schema(self, df: pd.DataFrame) -> pd.DataFrame:
-        if df.empty: return pd.DataFrame(columns=["Column", "Type", "Sample"])
-        schema_info = []
-        for col in df.columns:
-            d_type = str(df[col].dtype)
-            first_valid_idx = df[col].first_valid_index()
-            sample_val = str(df[col].loc[first_valid_idx]) if first_valid_idx is not None else "All Null"
-            if len(sample_val) > 50: sample_val = sample_val[:47] + "..."
-            schema_info.append({"Column Name": col, "Data Type": d_type, "Sample Value": sample_val})
-        return pd.DataFrame(schema_info)
+    def get_data_schema(self, df):
+        return pd.DataFrame({"Column": df.columns, "Type": df.dtypes.astype(str)})
 
-    # --- CONNECTORS ---
+    # --- CONNECTOR WRAPPERS ---
     def get_postgres_data(self, host, port, db, user, pw, table):
-        safe_pw = quote_plus(pw)
-        conn_str = f"postgresql://{user}:{safe_pw}@{host}:{port}/{db}"
-        engine = create_engine(conn_str)
-        return pd.read_sql(f"SELECT * FROM {table} LIMIT 100", engine)
+        return self.pg_handler.fetch_data(host, port, db, user, pw, table)
 
     def get_mysql_data(self, host, port, db, user, pw, table):
-        safe_pw = quote_plus(pw)
-        conn_str = f"mysql+pymysql://{user}:{safe_pw}@{host}:{port}/{db}"
-        engine = create_engine(conn_str)
-        return pd.read_sql(f"SELECT * FROM {table} LIMIT 100", engine)
+        return self.mysql_handler.fetch_data(host, port, db, user, pw, table)
 
+    def get_gmail_data(self, credentials_file, num_emails=10) -> pd.DataFrame:
+        return self.gmail_handler.fetch_emails(credentials_file, num_emails)
+
+    def get_google_drive_files(self, credentials_dict):
+        return self.drive_handler.list_files(credentials_dict)
+
+    def download_drive_file(self, file_id, mime_type, credentials_dict):
+        return self.drive_handler.download_file(file_id, mime_type, credentials_dict)
+
+    def get_s3_buckets(self, a, s, r): return self.s3_handler.get_buckets(a, s, r)
+    def get_s3_files(self, a, s, r, b): return self.s3_handler.get_files(a, s, r, b)
+    def download_s3_file(self, a, s, r, b, k): return self.s3_handler.download_file(a, s, r, b, k)
+    
+    def get_azure_containers(self, c): return self.azure_handler.get_containers(c)
+    def get_azure_blobs(self, c, n): return self.azure_handler.get_blobs(c, n)
+    def download_azure_blob(self, c, n, b): return self.azure_handler.download_blob(c, n, b)
+
+    def get_gcs_buckets(self, c): return self.gcp_handler.get_buckets(c)
+    def get_gcs_files(self, c, b): return self.gcp_handler.get_files(c, b)
+    def download_gcs_file(self, c, b, n): return self.gcp_handler.download_file(c, b, n)
+
+    # --- NEW WRAPPERS FOR SLACK & CONFLUENCE ---
+    def get_slack_messages(self, token, channel_id):
+        return self.slack_handler.fetch_messages(token, channel_id)
+
+    def get_confluence_page(self, url, username, token, page_id):
+        return self.confluence_handler.fetch_page_content(url, username, token, page_id)
+
+    # --- MONGO (Still here) ---
     def get_mongodb_data(self, host, port, db, user, pw, collection):
         if not MONGO_AVAILABLE: return pd.DataFrame()
         try:
-            if user and pw:
-                safe_user = quote_plus(user)
-                safe_pw = quote_plus(pw)
-                uri = f"mongodb://{safe_user}:{safe_pw}@{host}:{port}/"
-            else:
-                uri = f"mongodb://{host}:{port}/"
+            if user and pw: uri = f"mongodb://{quote_plus(user)}:{quote_plus(pw)}@{host}:{port}/"
+            else: uri = f"mongodb://{host}:{port}/"
             client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
-            database = client[db]
-            col = database[collection]
-            cursor = col.find().limit(100)
-            data_list = list(cursor)
-            if not data_list: return pd.DataFrame()
-            for doc in data_list:
-                if '_id' in doc: doc['_id'] = str(doc['_id'])
-            return pd.json_normalize(data_list)
-        except Exception as e:
-            print(f"Mongo Error: {e}")
-            raise e
-
-    def get_google_drive_files(self, credentials_dict):
-        if not GOOGLE_AVAILABLE: return []
-        try:
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            creds = service_account.Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
-            service = build('drive', 'v3', credentials=creds)
-            return service.files().list(pageSize=15, fields="files(id, name, mimeType)").execute().get('files', [])
-        except Exception as e:
-            print(f"Drive Auth Error: {e}")
-            return []
-
-    def download_drive_file(self, file_id, mime_type, credentials_dict):
-        if not GOOGLE_AVAILABLE: return b""
-        try:
-            SCOPES = ['https://www.googleapis.com/auth/drive.readonly']
-            creds = service_account.Credentials.from_service_account_info(credentials_dict, scopes=SCOPES)
-            service = build('drive', 'v3', credentials=creds)
-            if "spreadsheet" in mime_type: request = service.files().export_media(fileId=file_id, mimeType='text/csv')
-            elif "document" in mime_type: request = service.files().export_media(fileId=file_id, mimeType='application/pdf')
-            elif "presentation" in mime_type: request = service.files().export_media(fileId=file_id, mimeType='application/pdf')
-            else: request = service.files().get_media(fileId=file_id)
-            fh = io.BytesIO()
-            downloader = MediaIoBaseDownload(fh, request)
-            done = False
-            while done is False: status, done = downloader.next_chunk()
-            return fh.getvalue()
-        except: return b""
-
-    # --- AWS S3 CONNECTORS (NEW) ---
-    def get_s3_buckets(self, access_key, secret_key, region):
-        """Lists all S3 buckets for the given credentials."""
-        if not AWS_AVAILABLE: return []
-        try:
-            s3 = boto3.client('s3', aws_access_key_id=access_key, 
-                              aws_secret_access_key=secret_key, region_name=region)
-            response = s3.list_buckets()
-            return [b['Name'] for b in response.get('Buckets', [])]
-        except Exception as e:
-            print(f"AWS S3 Bucket Error: {e}")
-            return []
-
-    def get_s3_files(self, access_key, secret_key, region, bucket_name):
-        """Lists files in a specific S3 bucket."""
-        if not AWS_AVAILABLE: return []
-        try:
-            s3 = boto3.client('s3', aws_access_key_id=access_key, 
-                              aws_secret_access_key=secret_key, region_name=region)
-            response = s3.list_objects_v2(Bucket=bucket_name)
-            return [obj['Key'] for obj in response.get('Contents', [])]
-        except Exception as e:
-            print(f"AWS S3 List Error: {e}")
-            return []
-
-    def download_s3_file(self, access_key, secret_key, region, bucket_name, file_key):
-        """Downloads a specific file from S3 to memory."""
-        if not AWS_AVAILABLE: return b""
-        try:
-            s3 = boto3.client('s3', aws_access_key_id=access_key, 
-                              aws_secret_access_key=secret_key, region_name=region)
-            obj = s3.get_object(Bucket=bucket_name, Key=file_key)
-            return obj['Body'].read()
-        except Exception as e:
-            print(f"AWS S3 Download Error: {e}")
-            return b""
-
-    # --- FILE READERS ---
-    def get_json_data(self, file_obj) -> pd.DataFrame:
-        data = json.load(file_obj)
-        flat = []
-        def recursive(d, path):
-            if isinstance(d, dict):
-                for k, v in d.items(): recursive(v, f"{path}.{k}" if path else k)
-            elif isinstance(d, list):
-                for i, v in enumerate(d): recursive(v, f"{path}[{i}]")
-            else: flat.append({"Path": path, "Value": str(d)})
-        recursive(data, "")
-        return pd.DataFrame(flat)
-
-    def get_parquet_data(self, file_bytes) -> pd.DataFrame:
-        if not PARQUET_AVAILABLE: return pd.DataFrame()
-        try:
-            return pd.read_parquet(io.BytesIO(file_bytes))
-        except Exception as e:
-            print(f"Parquet Read Error: {e}")
-            return pd.DataFrame()
-
-    def get_pdf_total_pages(self, file_bytes) -> int:
-        try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            return len(doc)
-        except: return 0
-    
-    def get_pdf_page_text(self, file_bytes, page_num):
-        try:
-            doc = fitz.open(stream=file_bytes, filetype="pdf")
-            return doc[page_num].get_text("text")
-        except: return ""
+            cursor = client[db][collection].find().limit(100)
+            data = list(cursor)
+            if not data: return pd.DataFrame()
+            for d in data: d['_id'] = str(d.get('_id', ''))
+            return pd.json_normalize(data)
+        except: return pd.DataFrame()
