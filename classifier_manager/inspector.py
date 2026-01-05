@@ -12,10 +12,10 @@ class ModelInspector:
             "end": match["end"]
         }
 
-    def compare_models(self, regex_matches, nltk_matches, spacy_matches, presidio_matches, gliner_matches):
+    def compare_models(self, regex_matches, nltk_matches, spacy_matches, presidio_matches, gliner_matches, deberta_matches):
         """
-        Compares 5 lists of matches to find Unique vs Missed PII.
-        Added GLiNER to the comparison logic.
+        Compares 6 lists of matches to find Unique vs Missed PII.
+        Added DeBERTa to the comparison logic.
         """
         all_detections = {}
         
@@ -34,7 +34,8 @@ class ModelInspector:
         nltk_set = add_to_master(nltk_matches, "NLTK")
         spacy_set = add_to_master(spacy_matches, "SpaCy")
         presidio_set = add_to_master(presidio_matches, "Presidio")
-        gliner_set = add_to_master(gliner_matches, "GLiNER") # <--- Added GLiNER
+        gliner_set = add_to_master(gliner_matches, "GLiNER")
+        deberta_set = add_to_master(deberta_matches, "DeBERTa") # <--- Added DeBERTa
 
         # 2. Calculate "Missed" Data (Union of all models)
         total_unique_pii = set(all_detections.keys())
@@ -43,7 +44,8 @@ class ModelInspector:
         nltk_missed = total_unique_pii - nltk_set
         spacy_missed = total_unique_pii - spacy_set
         presidio_missed = total_unique_pii - presidio_set
-        gliner_missed = total_unique_pii - gliner_set # <--- Added GLiNER
+        gliner_missed = total_unique_pii - gliner_set
+        deberta_missed = total_unique_pii - deberta_set # <--- Added DeBERTa
 
         def fmt(item_set):
             items = [all_detections[k]['text'] for k in item_set]
@@ -91,6 +93,13 @@ class ModelInspector:
                 "Missed PII": fmt(gliner_missed),
                 "Accuracy": len(gliner_set) / total_count,
                 "Count": len(gliner_set)
+            },
+            {
+                "Model": "🚀 DeBERTa",  # <--- Added DeBERTa Entry
+                "Detected PII": fmt(deberta_set),
+                "Missed PII": fmt(deberta_missed),
+                "Accuracy": len(deberta_set) / total_count,
+                "Count": len(deberta_set)
             }
         ]
 

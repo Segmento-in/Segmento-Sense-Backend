@@ -10,13 +10,15 @@ import base64
 from typing import Dict, List, Any
 from sqlalchemy import create_engine
 from urllib.parse import quote_plus
-from bs4 import BeautifulSoup 
+from bs4 import BeautifulSoup
 
 # --- IMPORT CLASSIFIERS ---
 from classifier_manager.spacy_model import PiiSpacyAnalyzer
 from classifier_manager.presidio_model import PiiPresidioAnalyzer
 from classifier_manager.gliner_model import PiiGlinerAnalyzer
+from classifier_manager.deberta_model import PiiDebertaAnalyzer # <--- Added DeBERTa Import
 from classifier_manager.inspector import ModelInspector
+from classifier_manager.regex_scanner import RegexScanner
 
 # --- IMPORT FILE HANDLERS ---
 from file_handlers.ocr_engine import OcrEngine
@@ -33,8 +35,9 @@ from connectors.drive_handler import DriveHandler
 from connectors.aws_s3_handler import S3Handler
 from connectors.azure_handler import AzureBlobHandler
 from connectors.gcp_storage_handler import GcpStorageHandler
-from connectors.slack_handler import SlackHandler           # <--- NEW
-from connectors.confluence_handler import ConfluenceHandler # <--- NEW
+from connectors.slack_handler import SlackHandler          
+from connectors.confluence_handler import ConfluenceHandler
+from connectors.mongo_handler import MongoHandler          
 
 # --- DEPENDENCY CHECKS ---
 try:
@@ -43,6 +46,8 @@ try:
 except ImportError:
     GOOGLE_AVAILABLE = False
     print("Google Libraries not installed.")
+
+# Optional dependency checks
 try:
     import pymongo
     MONGO_AVAILABLE = True
@@ -71,26 +76,17 @@ except LookupError:
     nltk.download('punkt_tab')
 
 class RegexClassifier:
+    """
+    Main Orchestrator Class.
+    This acts as the central controller for all PII detection operations.
+    """
     def __init__(self):
-        self.colors = {
-            "EMAIL": "#8ef", "FIRST_NAME": "#af9", "LAST_NAME": "#af9",
-            "PHONE": "#faa", "SSN": "#fca", "CREDIT_CARD": "#fea",
-            "LOCATION": "#dcf", "ORG": "#ffecb3", "DEFAULT": "#e0e0e0"
-        }
-        
-        self.patterns: Dict[str, str] = {
-            "EMAIL": r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b",
-            "PHONE": r"\b(?:\+?1[-. ]?)?\(?([0-9]{3})\)?[-. ]?([0-9]{3})[-. ]?([0-9]{4})\b",
-            "SSN": r"\b\d{3}-\d{2}-\d{4}\b",
-            "CREDIT_CARD": r"\b\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}\b",
-            "AADHAAR_IND": r"\b\d{4}[ -]?\d{4}[ -]?\d{4}\b",
-            "PAN_IND": r"\b[A-Z]{5}\d{4}[A-Z]{1}\b",
-        }
-
         # 1. Classifiers
+        self.regex_scanner = RegexScanner()
         self.spacy_analyzer = PiiSpacyAnalyzer()
         self.presidio_analyzer = PiiPresidioAnalyzer()
         self.gliner_analyzer = PiiGlinerAnalyzer()
+        self.deberta_analyzer = PiiDebertaAnalyzer() # <--- Init DeBERTa
         self.inspector = ModelInspector()
         
         # 2. File Handlers
@@ -103,25 +99,26 @@ class RegexClassifier:
         # 3. Connectors
         self.pg_handler = PostgresHandler()
         self.mysql_handler = MysqlHandler()
+        self.mongo_handler = MongoHandler()
         self.gmail_handler = GmailHandler()
         self.drive_handler = DriveHandler()
         self.s3_handler = S3Handler()
         self.azure_handler = AzureBlobHandler()
         self.gcp_handler = GcpStorageHandler()
-        self.slack_handler = SlackHandler()           # <--- Init
-        self.confluence_handler = ConfluenceHandler() # <--- Init
+        self.slack_handler = SlackHandler()
+        self.confluence_handler = ConfluenceHandler()
 
-    def list_patterns(self): return self.patterns
-    def add_pattern(self, n, r): self.patterns[n.upper()] = r
-    def remove_pattern(self, n): self.patterns.pop(n.upper(), None)
+        # Shortcuts for UI colors
+        self.colors = self.regex_scanner.colors
+
+    # --- PATTERN MANAGEMENT PROXY ---
+    def list_patterns(self): return self.regex_scanner.patterns
+    def add_pattern(self, n, r): self.regex_scanner.add_pattern(n, r)
+    def remove_pattern(self, n): self.regex_scanner.remove_pattern(n)
 
     # --- CORE ANALYSIS ---
     def scan_with_regex(self, text: str) -> List[dict]:
-        matches = []
-        for label, regex in self.patterns.items():
-            for m in re.finditer(regex, text):
-                matches.append({"label": label, "text": m.group(), "start": m.start(), "end": m.end(), "source": "Regex"})
-        return matches
+        return self.regex_scanner.scan(text)
 
     def scan_with_nltk(self, text: str) -> List[dict]:
         detections = []
@@ -135,18 +132,22 @@ class RegexClassifier:
                             "label": "LOCATION" if chunk.label() == 'GPE' else "FIRST_NAME",
                             "text": val, "start": start, "end": start+len(val), "source": "NLTK"
                         })
-        except: pass 
+        except: pass
         return detections
 
     def analyze_text_hybrid(self, text: str) -> List[dict]:
         if not text: return []
         all_matches = []
-        all_matches.extend(self.scan_with_regex(text))
+        
+        # Run all scanners
+        all_matches.extend(self.regex_scanner.scan(text))
         all_matches.extend(self.scan_with_nltk(text))
         all_matches.extend(self.spacy_analyzer.scan(text))
         all_matches.extend(self.presidio_analyzer.scan(text))
         all_matches.extend(self.gliner_analyzer.scan(text))
+        all_matches.extend(self.deberta_analyzer.scan(text)) # <--- Scan with DeBERTa
         
+        # Sort and Deduplicate
         all_matches.sort(key=lambda x: x['start'])
         unique = []
         if not all_matches: return []
@@ -163,11 +164,12 @@ class RegexClassifier:
 
     def run_full_inspection(self, text: str):
         return self.inspector.compare_models(
-            self.scan_with_regex(text),
+            self.regex_scanner.scan(text),
             self.scan_with_nltk(text),
             self.spacy_analyzer.scan(text),
             self.presidio_analyzer.scan(text),
-            self.gliner_analyzer.scan(text)
+            self.gliner_analyzer.scan(text),
+            self.deberta_analyzer.scan(text) # <--- Compare DeBERTa
         )
 
     # --- WRAPPERS FOR UI ---
@@ -196,11 +198,7 @@ class RegexClassifier:
 
     def get_pii_counts_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
         text = " ".join(df.astype(str).values.flatten())
-        matches = self.analyze_text_hybrid(str(text))
-        if not matches: return pd.DataFrame(columns=["PII Type", "Count"])
-        counts = {}
-        for m in matches: counts[m['label']] = counts.get(m['label'], 0) + 1
-        return pd.DataFrame(list(counts.items()), columns=["PII Type", "Count"])
+        return self.get_pii_counts(text)
     
     def get_pii_counts(self, text: str) -> pd.DataFrame:
         matches = self.analyze_text_hybrid(str(text))
@@ -243,6 +241,9 @@ class RegexClassifier:
     def get_mysql_data(self, host, port, db, user, pw, table):
         return self.mysql_handler.fetch_data(host, port, db, user, pw, table)
 
+    def get_mongodb_data(self, host, port, db, user, pw, collection):
+        return self.mongo_handler.fetch_data(host, port, db, user, pw, collection)
+
     def get_gmail_data(self, credentials_file, num_emails=10) -> pd.DataFrame:
         return self.gmail_handler.fetch_emails(credentials_file, num_emails)
 
@@ -264,23 +265,9 @@ class RegexClassifier:
     def get_gcs_files(self, c, b): return self.gcp_handler.get_files(c, b)
     def download_gcs_file(self, c, b, n): return self.gcp_handler.download_file(c, b, n)
 
-    # --- NEW WRAPPERS FOR SLACK & CONFLUENCE ---
+    # --- ENTERPRISE WRAPPERS ---
     def get_slack_messages(self, token, channel_id):
         return self.slack_handler.fetch_messages(token, channel_id)
 
     def get_confluence_page(self, url, username, token, page_id):
         return self.confluence_handler.fetch_page_content(url, username, token, page_id)
-
-    # --- MONGO (Still here) ---
-    def get_mongodb_data(self, host, port, db, user, pw, collection):
-        if not MONGO_AVAILABLE: return pd.DataFrame()
-        try:
-            if user and pw: uri = f"mongodb://{quote_plus(user)}:{quote_plus(pw)}@{host}:{port}/"
-            else: uri = f"mongodb://{host}:{port}/"
-            client = pymongo.MongoClient(uri, serverSelectionTimeoutMS=5000)
-            cursor = client[db][collection].find().limit(100)
-            data = list(cursor)
-            if not data: return pd.DataFrame()
-            for d in data: d['_id'] = str(d.get('_id', ''))
-            return pd.json_normalize(data)
-        except: return pd.DataFrame()

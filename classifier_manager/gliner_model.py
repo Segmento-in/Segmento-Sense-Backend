@@ -42,9 +42,14 @@ class PiiGlinerAnalyzer:
             return []
 
         try:
+            # Truncate text to prevent tokenizer warnings
+            # GLiNER models typically handle ~512 tokens (~2000-2500 characters)
+            max_chars = 2000
+            truncated_text = text[:max_chars] if len(text) > max_chars else text
+            
             # GLiNER takes text and a list of labels as input
             # Threshold 0.5 is a good balance for the small model
-            entities = self.model.predict_entities(text, self.labels, threshold=0.5)
+            entities = self.model.predict_entities(truncated_text, self.labels, threshold=0.5)
             
             detections = []
             
