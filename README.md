@@ -1,4 +1,14 @@
+---
+title: Sense Backend
+emoji: 🛡️
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # Backend Module Structure
+
 
 ## 📁 Directory Organization
 
