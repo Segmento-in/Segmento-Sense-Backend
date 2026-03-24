@@ -1,5 +1,6 @@
-# Use Python 3.10-slim (Better support for newer ML libs)
-FROM python:3.10-slim
+# Use Python 3.11-slim (Better performance and support)
+FROM python:3.11-slim
+
 
 # Set working directory
 WORKDIR /app

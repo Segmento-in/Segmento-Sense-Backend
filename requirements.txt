@@ -34,3 +34,4 @@ chromadb
 crewai
 langchain-groq
 sentence-transformers
+email-validator

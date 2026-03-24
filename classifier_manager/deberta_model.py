@@ -7,7 +7,8 @@ class PiiDebertaAnalyzer:
     Implements the DeBERTa V3 model, widely recognized for winning the Kaggle PII Detection competition.
     It uses a token-classification pipeline to detect PII entities.
     """
-    def __init__(self, model_name="lakshyakh93/deberta-large-finetuned-pii"):
+    def __init__(self, model_name="lakshyakh93/deberta_finetuned_pii"):
+
         self.device = 0 if torch.cuda.is_available() else -1
         print(f"Loading DeBERTa Model on device: {'GPU' if self.device == 0 else 'CPU'}...")
         
