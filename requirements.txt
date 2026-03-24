@@ -29,3 +29,8 @@ transformers
 torch
 slack_sdk
 atlassian-python-api
+sendgrid
+chromadb
+crewai
+langchain-groq
+sentence-transformers

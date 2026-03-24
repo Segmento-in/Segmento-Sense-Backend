@@ -9,11 +9,10 @@ email notifications via SMTP.
 Author: Segmento Team
 """
 
-import smtplib
 import os
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
 from typing import Optional
+from sendgrid import SendGridAPIClient
+from sendgrid.helpers.mail import Mail, Email, To, Content
 
 
 class EmailService:
@@ -23,20 +22,20 @@ class EmailService:
     """
     
     def __init__(self):
-        """Initialize email service with SMTP configuration from environment."""
-        self.smtp_email = os.getenv("SMTP_EMAIL")
-        self.smtp_password = os.getenv("SMTP_PASSWORD")
-        self.smtp_host = os.getenv("SMTP_HOST", "smtp.gmail.com")
-        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        """Initialize email service with SendGrid API configuration from environment."""
+        self.sendgrid_api_key = os.getenv("SENDGRID_API_KEY")
+        self.from_email = os.getenv("FROM_EMAIL", "info@segmento.in")
         
         # Validate configuration
-        if not self.smtp_email or not self.smtp_password:
-            print("⚠️  WARNING: SMTP credentials not configured in environment variables")
-            print("   Set SMTP_EMAIL and SMTP_PASSWORD to enable email sending")
+        if not self.sendgrid_api_key:
+            print("⚠️  WARNING: SendGrid API key not configured in environment variables")
+            print("   Set SENDGRID_API_KEY to enable email sending")
+        if not self.from_email:
+            print("⚠️  WARNING: FROM_EMAIL not configured, using default")
     
     def is_configured(self) -> bool:
-        """Check if SMTP credentials are properly configured."""
-        return bool(self.smtp_email and self.smtp_password)
+        """Check if SendGrid API key is properly configured."""
+        return bool(self.sendgrid_api_key)
     
     def send_email(
         self,
@@ -46,44 +45,36 @@ class EmailService:
         text_body: Optional[str] = None
     ) -> bool:
         """
-        Send an email with both HTML and plain text versions.
+        Send an email using SendGrid HTTP API.
         
         Args:
             to_email: Recipient email address
             subject: Email subject line
             html_body: HTML version of the email
-            text_body: Plain text version (optional, will strip HTML if not provided)
+            text_body: Plain text version (optional)
         
         Returns:
             True if email sent successfully, False otherwise
         """
         if not self.is_configured():
-            print("❌ Cannot send email: SMTP credentials not configured")
+            print("❌ Cannot send email: SendGrid API key not configured")
             return False
         
         try:
-            # Create message
-            message = MIMEMultipart("alternative")
-            message["Subject"] = subject
-            message["From"] = f"Segmento Sense <{self.smtp_email}>"
-            message["To"] = to_email
+            # Create SendGrid email message
+            message = Mail(
+                from_email=Email(self.from_email, "Segmento Sense"),
+                to_emails=To(to_email),
+                subject=subject,
+                plain_text_content=Content("text/plain", text_body if text_body else ""),
+                html_content=Content("text/html", html_body)
+            )
             
-            # Attach plain text version
-            if text_body:
-                part1 = MIMEText(text_body, "plain")
-                message.attach(part1)
+            # Send via SendGrid HTTP API
+            sg = SendGridAPIClient(self.sendgrid_api_key)
+            response = sg.send(message)
             
-            # Attach HTML version
-            part2 = MIMEText(html_body, "html")
-            message.attach(part2)
-            
-            # Send email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                server.starttls()  # Enable TLS encryption
-                server.login(self.smtp_email, self.smtp_password)
-                server.send_message(message)
-            
-            print(f"✅ Email sent successfully to {to_email}")
+            print(f"✅ Email sent successfully to {to_email} (Status: {response.status_code})")
             return True
             
         except Exception as e:
