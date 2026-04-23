@@ -10,18 +10,18 @@ class PiiSpacyAnalyzer:
         self.available = False
         
         try:
-            print(f"⏳ Loading SpaCy model: {model_name}...")
+            print(f"[WAIT] Loading SpaCy model: {model_name}...")
             self.nlp = spacy.load(model_name)
             self.available = True
-            print(f"✅ SpaCy model '{model_name}' loaded successfully.")
+            print(f"[OK] SpaCy model '{model_name}' loaded successfully.")
         except OSError:
-            print(f"❌ Error: Model '{model_name}' not found.")
-            print("👉 Run: python -m spacy download en_core_web_lg")
+            print(f"[ERROR] Error: Model '{model_name}' not found.")
+            print("[INFO] Run: python -m spacy download en_core_web_lg")
             # Optional: Fallback to small model if large fails
             try:
                 self.nlp = spacy.load("en_core_web_sm")
                 self.available = True
-                print("⚠️ Loaded fallback model 'en_core_web_sm'.")
+                print("[WARN] Loaded fallback model 'en_core_web_sm'.")
             except:
                 self.available = False
 

@@ -4,7 +4,7 @@ from urllib.parse import quote_plus
 
 class PostgresHandler:
     def __init__(self):
-        print("✅ PostgreSQL Handler loaded.")
+        print("[OK] PostgreSQL Handler loaded.")
 
     def fetch_data(self, host, port, db, user, pw, table):
         """
@@ -19,5 +19,5 @@ class PostgresHandler:
             query = f"SELECT * FROM {table} LIMIT 100"
             return pd.read_sql(query, engine)
         except Exception as e:
-            print(f"❌ PostgreSQL Error: {e}")
+            print(f"[ERROR] PostgreSQL Error: {e}")
             return pd.DataFrame()

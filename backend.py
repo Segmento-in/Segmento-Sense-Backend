@@ -197,8 +197,21 @@ class RegexClassifier:
         return self.ocr_engine.extract_text(file_bytes)
 
     def get_pii_counts_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
-        text = " ".join(df.astype(str).values.flatten())
-        return self.get_pii_counts(text)
+        if df.empty:
+            return pd.DataFrame(columns=["PII Type", "Count"])
+        
+        # Sample at most 100 rows to prevent massive string flattening
+        sample_size = min(100, len(df))
+        df_sample = df.sample(n=sample_size, random_state=42) if sample_size > 0 else df
+        
+        # Select only object/string columns to avoid useless numbers
+        str_cols = df_sample.select_dtypes(include=['object', 'string'])
+        if str_cols.empty:
+            return pd.DataFrame(columns=["PII Type", "Count"])
+            
+        # Truncate to a safe maximum limit (approx 50k chars) to prevent Transformer OOM
+        text = " ".join(str_cols.fillna("").astype(str).values.flatten())
+        return self.get_pii_counts(text[:50000])
     
     def get_pii_counts(self, text: str) -> pd.DataFrame:
         matches = self.analyze_text_hybrid(str(text))
@@ -208,28 +221,58 @@ class RegexClassifier:
         return pd.DataFrame(list(counts.items()), columns=["PII Type", "Count"])
 
     def mask_dataframe(self, df: pd.DataFrame) -> pd.DataFrame:
+        df_masked = df.copy().astype(str)
+        
         def mask_text(text):
-            text = str(text)
-            matches = self.analyze_text_hybrid(text)
-            matches.sort(key=lambda x: x['start'], reverse=True)
-            for m in matches:
-                if "***" not in text[m['start']:m['end']]:
-                    text = text[:m['start']] + "******" + text[m['end']:]
-            return text
-        return df.map(lambda x: mask_text(x) if isinstance(x, (str, int, float)) else x)
+            if pd.isna(text) or text == "nan" or text == "None": return ""
+            if not text.strip(): return text
+            try:
+                matches = self.analyze_text_hybrid(text)
+                if not matches: return text
+                matches.sort(key=lambda x: x['start'], reverse=True)
+                for m in matches:
+                    if "***" not in text[m['start']:m['end']]:
+                        text = text[:m['start']] + "******" + text[m['end']:]
+                return text
+            except Exception as e:
+                print(f"Masking error: {e}")
+                return text
+        
+        # Process all columns to catch numeric PII (like phone numbers)
+        for col in df_masked.columns:
+            unique_vals = df_masked[col].unique()
+            masked_map = {val: mask_text(val) for val in unique_vals}
+            df_masked[col] = df_masked[col].map(masked_map)
+                
+        return df_masked
 
     def scan_dataframe_with_html(self, df: pd.DataFrame) -> pd.DataFrame:
+        df_scanned = df.copy().astype(str)
+        
         def highlight(text):
-            text = str(text)
-            matches = self.analyze_text_hybrid(text)
-            matches.sort(key=lambda x: x['start'], reverse=True)
-            for m in matches:
-                if "<span" in text[m['start']:m['end']]: continue
-                color = self.colors.get(m['label'], self.colors["DEFAULT"])
-                replacement = f'<span style="background:{color}; padding:2px; border-radius:4px;">{m["text"]}</span>'
-                text = text[:m['start']] + replacement + text[m['end']:]
-            return text
-        return df.map(lambda x: highlight(x) if isinstance(x, str) else x)
+            if pd.isna(text) or text == "nan" or text == "None": return ""
+            if not text.strip(): return text
+            try:
+                matches = self.analyze_text_hybrid(text)
+                if not matches: return text
+                matches.sort(key=lambda x: x['start'], reverse=True)
+                for m in matches:
+                    if "<span" in text[m['start']:m['end']]: continue
+                    color = self.colors.get(m['label'], self.colors["DEFAULT"])
+                    replacement = f'<span style="background:{color}; padding:2px; border-radius:4px;">{m["text"]}</span>'
+                    text = text[:m['start']] + replacement + text[m['end']:]
+                return text
+            except Exception as e:
+                print(f"Highlight error: {e}")
+                return text
+                
+        # Process all columns to catch numeric PII (like phone numbers)
+        for col in df_scanned.columns:
+            unique_vals = df_scanned[col].unique()
+            highlight_map = {val: highlight(val) for val in unique_vals}
+            df_scanned[col] = df_scanned[col].map(highlight_map)
+                
+        return df_scanned
 
     def get_data_schema(self, df):
         return pd.DataFrame({"Column": df.columns, "Type": df.dtypes.astype(str)})

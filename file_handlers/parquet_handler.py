@@ -7,9 +7,9 @@ class ParquetHandler:
         try:
             import pyarrow.parquet as pq
             self.available = True
-            print("✅ Parquet Handler loaded.")
+            print("[OK] Parquet Handler loaded.")
         except ImportError:
-            print("❌ PyArrow not found. Please run: pip install pyarrow")
+            print("[ERROR] PyArrow not found. Please run: pip install pyarrow")
 
     def convert_to_dataframe(self, file_bytes: bytes) -> pd.DataFrame:
         """
@@ -21,5 +21,5 @@ class ParquetHandler:
         try:
             return pd.read_parquet(io.BytesIO(file_bytes))
         except Exception as e:
-            print(f"⚠️ Parquet Read Error: {e}")
+            print(f"[WARN] Parquet Read Error: {e}")
             return pd.DataFrame()

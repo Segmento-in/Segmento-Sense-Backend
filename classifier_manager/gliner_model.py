@@ -26,13 +26,13 @@ class PiiGlinerAnalyzer:
         ]
         
         try:
-            print(f"⏳ Loading GLiNER model: {model_name}...")
+            print(f"[WAIT] Loading GLiNER model: {model_name}...")
             # This will download the model to your local cache on the first run
             self.model = GLiNER.from_pretrained(model_name)
             self.available = True
-            print("✅ GLiNER model loaded successfully.")
+            print("[OK] GLiNER model loaded successfully.")
         except Exception as e:
-            print(f"❌ Error loading GLiNER: {e}")
+            print(f"[ERROR] Error loading GLiNER: {e}")
 
     def scan(self, text: str) -> list:
         """
@@ -82,5 +82,5 @@ class PiiGlinerAnalyzer:
             return detections
 
         except Exception as e:
-            print(f"⚠️ GLiNER Scan Error: {e}")
+            print(f"[WARN] GLiNER Scan Error: {e}")
             return []

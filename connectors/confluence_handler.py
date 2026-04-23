@@ -4,7 +4,7 @@ from bs4 import BeautifulSoup
 
 class ConfluenceHandler:
     def __init__(self):
-        print("✅ Confluence Handler loaded.")
+        print("[OK] Confluence Handler loaded.")
 
     def fetch_page_content(self, url, username, api_token, page_id):
         """
@@ -40,5 +40,5 @@ class ConfluenceHandler:
             }])
 
         except Exception as e:
-            print(f"❌ Confluence Error: {e}")
+            print(f"[ERROR] Confluence Error: {e}")
             return pd.DataFrame()

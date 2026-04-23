@@ -6,7 +6,7 @@ from google.oauth2 import service_account
 
 class DriveHandler:
     def __init__(self):
-        print("✅ Google Drive Handler loaded.")
+        print("[OK] Google Drive Handler loaded.")
 
     def list_files(self, credentials_dict):
         try:
@@ -19,7 +19,7 @@ class DriveHandler:
             ).execute()
             return results.get('files', [])
         except Exception as e:
-            print(f"❌ Drive List Error: {e}")
+            print(f"[ERROR] Drive List Error: {e}")
             return []
 
     def download_file(self, file_id, mime_type, credentials_dict) -> bytes:
@@ -48,5 +48,5 @@ class DriveHandler:
             
             return fh.getvalue()
         except Exception as e:
-            print(f"❌ Drive Download Error: {e}")
+            print(f"[ERROR] Drive Download Error: {e}")
             return b""

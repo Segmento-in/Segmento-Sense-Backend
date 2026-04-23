@@ -2,7 +2,7 @@ from azure.storage.blob import BlobServiceClient
 
 class AzureBlobHandler:
     def __init__(self):
-        print("✅ Azure Blob Handler loaded.")
+        print("[OK] Azure Blob Handler loaded.")
 
     def get_containers(self, conn_str):
         try:
@@ -10,7 +10,7 @@ class AzureBlobHandler:
             containers = blob_service_client.list_containers()
             return [c['name'] for c in containers]
         except Exception as e:
-            print(f"❌ Azure Error: {e}")
+            print(f"[ERROR] Azure Error: {e}")
             return []
 
     def get_blobs(self, conn_str, container_name):
@@ -28,5 +28,5 @@ class AzureBlobHandler:
             blob_client = blob_service_client.get_blob_client(container=container_name, blob=blob_name)
             return blob_client.download_blob().readall()
         except Exception as e:
-            print(f"❌ Azure Download Error: {e}")
+            print(f"[ERROR] Azure Download Error: {e}")
             return b""

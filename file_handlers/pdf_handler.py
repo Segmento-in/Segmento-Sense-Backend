@@ -7,7 +7,7 @@ class PdfHandler:
         :param ocr_engine: Instance of OcrEngine to handle scanned pages.
         """
         self.ocr_engine = ocr_engine
-        print("✅ PDF Handler loaded.")
+        print("[OK] PDF Handler loaded.")
 
     def get_total_pages(self, file_bytes: bytes) -> int:
         try:
@@ -29,7 +29,7 @@ class PdfHandler:
             
             # OCR Fallback for scanned PDFs
             if not text.strip() and self.ocr_engine.available:
-                print(f"⚠️ Page {page_num+1} appears empty/scanned. Running OCR...")
+                print(f"[WARN] Page {page_num+1} appears empty/scanned. Running OCR...")
                 pix = page.get_pixmap()
                 img_bytes = pix.tobytes("png")
                 text = self.ocr_engine.extract_text(img_bytes)

@@ -4,7 +4,7 @@ import io
 
 class JsonHandler:
     def __init__(self):
-        print("✅ JSON Handler loaded.")
+        print("[OK] JSON Handler loaded.")
 
     def read_file(self, file_obj) -> pd.DataFrame:
         """
@@ -35,5 +35,5 @@ class JsonHandler:
             return pd.DataFrame([flatten(data)])
 
         except Exception as e:
-            print(f"❌ JSON Read Error: {e}")
+            print(f"[ERROR] JSON Read Error: {e}")
             return pd.DataFrame()

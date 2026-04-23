@@ -9,7 +9,7 @@ from google.auth.transport.requests import Request
 
 class GmailHandler:
     def __init__(self):
-        print("✅ Gmail Handler loaded.")
+        print("[OK] Gmail Handler loaded.")
 
     def fetch_emails(self, credentials_file, num_emails=10) -> pd.DataFrame:
         """
@@ -73,5 +73,5 @@ class GmailHandler:
             return pd.DataFrame(email_data)
 
         except Exception as e:
-            print(f"❌ Gmail Error: {e}")
+            print(f"[ERROR] Gmail Error: {e}")
             return pd.DataFrame()

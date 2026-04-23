@@ -113,20 +113,20 @@ def format_pii_response(df: pd.DataFrame, source_df: pd.DataFrame = None, text: 
     count_df = classifier.get_pii_counts_dataframe(df) if source_df is not None else classifier.get_pii_counts(text)
     
     response = {
-        "pii_counts": count_df.to_dict(orient="records") if not count_df.empty else [],
+        "pii_counts": count_df.fillna("").to_dict(orient="records") if not count_df.empty else [],
         "total_pii_found": int(count_df["Count"].sum()) if not count_df.empty else 0
     }
     
     # Add schema if source dataframe provided
     if source_df is not None and not source_df.empty:
         schema_df = classifier.get_data_schema(source_df)
-        response["schema"] = schema_df.to_dict(orient="records")
+        response["schema"] = schema_df.fillna("").to_dict(orient="records")
     
     # Add inspector results if text provided
     if text:
         inspector_df = classifier.run_full_inspection(text)
         if not inspector_df.empty:
-            response["inspector"] = inspector_df.to_dict(orient="records")
+            response["inspector"] = inspector_df.fillna("").to_dict(orient="records")
     
     return response
 
@@ -145,10 +145,10 @@ async def upload_csv(file: UploadFile = File(...), mask: bool = Form(False)):
         
         if mask:
             masked_df = classifier.mask_dataframe(df.head(50))
-            response["data"] = masked_df.to_dict(orient="records")
+            response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
             highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
-            response["data"] = highlighted_df.to_dict(orient="records")
+            response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -167,10 +167,10 @@ async def upload_json(file: UploadFile = File(...), mask: bool = Form(False)):
         
         if mask:
             masked_df = classifier.mask_dataframe(df.head(50))
-            response["data"] = masked_df.to_dict(orient="records")
+            response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
             highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
-            response["data"] = highlighted_df.to_dict(orient="records")
+            response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -190,10 +190,10 @@ async def upload_parquet(file: UploadFile = File(...), mask: bool = Form(False))
         
         if mask:
             masked_df = classifier.mask_dataframe(df.head(50))
-            response["data"] = masked_df.to_dict(orient="records")
+            response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
             highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
-            response["data"] = highlighted_df.to_dict(orient="records")
+            response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -213,10 +213,10 @@ async def upload_avro(file: UploadFile = File(...), mask: bool = Form(False)):
         
         if mask:
             masked_df = classifier.mask_dataframe(df.head(50))
-            response["data"] = masked_df.to_dict(orient="records")
+            response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
             highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
-            response["data"] = highlighted_df.to_dict(orient="records")
+            response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -287,10 +287,10 @@ async def upload_image(file: UploadFile = File(...), mask: bool = Form(False)):
         
         if mask:
             masked_df = classifier.mask_dataframe(df)
-            response["data"] = masked_df.to_dict(orient="records")
+            response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
             highlighted_df = classifier.scan_dataframe_with_html(df)
-            response["data"] = highlighted_df.to_dict(orient="records")
+            response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         # Return original image as base64
         import base64
@@ -313,7 +313,7 @@ async def analyze_text(request: TextAnalysisRequest):
         
         return JSONResponse(content={
             "matches": matches,
-            "pii_counts": count_df.to_dict(orient="records") if not count_df.empty else [],
+            "pii_counts": count_df.fillna("").to_dict(orient="records") if not count_df.empty else [],
             "total_pii_found": len(matches)
         })
     
@@ -333,7 +333,7 @@ async def inspect_text(request: TextAnalysisRequest):
             })
         
         return JSONResponse(content={
-            "inspector": inspector_df.to_dict(orient="records")
+            "inspector": inspector_df.fillna("").to_dict(orient="records")
         })
     
     except Exception as e:
@@ -408,7 +408,7 @@ async def connect_postgresql(request: DatabaseConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -428,7 +428,7 @@ async def connect_mysql(request: DatabaseConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -448,7 +448,7 @@ async def connect_mongodb(request: DatabaseConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -500,7 +500,7 @@ async def scan_s3_file(request: S3ConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -548,7 +548,7 @@ async def scan_azure_blob(request: AzureConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -596,7 +596,7 @@ async def scan_gcs_file(request: GCSConnectionRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df.head(50))
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -633,7 +633,7 @@ async def scan_drive_file(request: GoogleDriveRequest):
                 
                 response = format_pii_response(df, df, text)
                 highlighted_df = classifier.scan_dataframe_with_html(df)
-                response["data"] = highlighted_df.to_dict(orient="records")
+                response["data"] = highlighted_df.fillna("").to_dict(orient="records")
                 
                 return JSONResponse(content=response)
             except:
@@ -657,7 +657,7 @@ async def scan_gmail(file: UploadFile = File(...), num_emails: int = Form(10)):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df)
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -677,7 +677,7 @@ async def scan_slack(request: SlackRequest):
         response = format_pii_response(df, df, text_sample)
         
         masked_df = classifier.mask_dataframe(df)
-        response["data"] = masked_df.to_dict(orient="records")
+        response["data"] = masked_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     
@@ -699,7 +699,7 @@ async def scan_confluence(request: ConfluenceRequest):
         response = format_pii_response(df, df, text_sample)
         
         highlighted_df = classifier.scan_dataframe_with_html(df)
-        response["data"] = highlighted_df.to_dict(orient="records")
+        response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
     

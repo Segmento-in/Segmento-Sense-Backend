@@ -28,10 +28,10 @@ class EmailService:
         
         # Validate configuration
         if not self.sendgrid_api_key:
-            print("⚠️  WARNING: SendGrid API key not configured in environment variables")
+            print("[WARN]  WARNING: SendGrid API key not configured in environment variables")
             print("   Set SENDGRID_API_KEY to enable email sending")
         if not self.from_email:
-            print("⚠️  WARNING: FROM_EMAIL not configured, using default")
+            print("[WARN]  WARNING: FROM_EMAIL not configured, using default")
     
     def is_configured(self) -> bool:
         """Check if SendGrid API key is properly configured."""
@@ -57,7 +57,7 @@ class EmailService:
             True if email sent successfully, False otherwise
         """
         if not self.is_configured():
-            print("❌ Cannot send email: SendGrid API key not configured")
+            print("[ERROR] Cannot send email: SendGrid API key not configured")
             return False
         
         try:
@@ -74,11 +74,11 @@ class EmailService:
             sg = SendGridAPIClient(self.sendgrid_api_key)
             response = sg.send(message)
             
-            print(f"✅ Email sent successfully to {to_email} (Status: {response.status_code})")
+            print(f"[OK] Email sent successfully to {to_email} (Status: {response.status_code})")
             return True
             
         except Exception as e:
-            print(f"❌ Failed to send email to {to_email}: {str(e)}")
+            print(f"[ERROR] Failed to send email to {to_email}: {str(e)}")
             return False
     
     def send_welcome_email(self, name: str, email: str) -> bool:

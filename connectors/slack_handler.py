@@ -5,7 +5,7 @@ import datetime
 
 class SlackHandler:
     def __init__(self):
-        print("✅ Slack Handler loaded.")
+        print("[OK] Slack Handler loaded.")
 
     def fetch_messages(self, token, channel_id, num_messages=20):
         """
@@ -34,14 +34,14 @@ class SlackHandler:
                         })
             
             if not messages:
-                print("⚠️ No messages found in channel.")
+                print("[WARN] No messages found in channel.")
                 return pd.DataFrame()
                 
             return pd.DataFrame(messages)
             
         except SlackApiError as e:
-            print(f"❌ Slack API Error: {e.response['error']}")
+            print(f"[ERROR] Slack API Error: {e.response['error']}")
             return pd.DataFrame()
         except Exception as e:
-            print(f"❌ Slack Handler Error: {e}")
+            print(f"[ERROR] Slack Handler Error: {e}")
             return pd.DataFrame()

@@ -11,13 +11,13 @@ class PiiPresidioAnalyzer:
         self.available = False
         
         try:
-            print("⏳ Loading Microsoft Presidio...")
+            print("[WAIT] Loading Microsoft Presidio...")
             self.analyzer = AnalyzerEngine()
             self.available = True
-            print("✅ Presidio Analyzer loaded successfully.")
+            print("[OK] Presidio Analyzer loaded successfully.")
         except Exception as e:
-            print(f"❌ Error loading Presidio: {e}")
-            print("👉 Ensure 'presidio-analyzer' is installed and 'en_core_web_lg' is downloaded.")
+            print(f"[ERROR] Error loading Presidio: {e}")
+            print("[INFO] Ensure 'presidio-analyzer' is installed and 'en_core_web_lg' is downloaded.")
             self.available = False
 
     def scan(self, text: str) -> list:
@@ -62,7 +62,7 @@ class PiiPresidioAnalyzer:
             return detections
 
         except Exception as e:
-            print(f"⚠️ Presidio Scan Error: {e}")
+            print(f"[WARN] Presidio Scan Error: {e}")
             return []
 
     def retrain(self, training_data):

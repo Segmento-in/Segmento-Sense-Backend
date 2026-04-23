@@ -4,7 +4,7 @@ from urllib.parse import quote_plus
 
 class MysqlHandler:
     def __init__(self):
-        print("✅ MySQL Handler loaded.")
+        print("[OK] MySQL Handler loaded.")
 
     def fetch_data(self, host, port, db, user, pw, table):
         """
@@ -19,5 +19,5 @@ class MysqlHandler:
             query = f"SELECT * FROM {table} LIMIT 100"
             return pd.read_sql(query, engine)
         except Exception as e:
-            print(f"❌ MySQL Error: {e}")
+            print(f"[ERROR] MySQL Error: {e}")
             return pd.DataFrame()

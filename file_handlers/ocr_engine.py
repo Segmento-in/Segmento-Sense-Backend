@@ -12,11 +12,11 @@ class OcrEngine:
         try:
             # Check availability by querying version
             pytesseract.get_tesseract_version()
-            print("✅ Tesseract OCR Engine loaded.")
+            print("[OK] Tesseract OCR Engine loaded.")
             self.available = True
         except Exception as e:
-            print(f"❌ Tesseract OCR not found: {e}")
-            print("👉 Install Tesseract system-wide (e.g., 'apt-get install tesseract-ocr') and 'pip install pytesseract'.")
+            print(f"[ERROR] Tesseract OCR not found: {e}")
+            print("[INFO] Install Tesseract system-wide (e.g., 'apt-get install tesseract-ocr') and 'pip install pytesseract'.")
 
     def extract_text(self, image_bytes: bytes) -> str:
         """
@@ -31,5 +31,5 @@ class OcrEngine:
             text = pytesseract.image_to_string(image)
             return text
         except Exception as e:
-            print(f"⚠️ OCR Extraction Error: {e}")
+            print(f"[WARN] OCR Extraction Error: {e}")
             return ""

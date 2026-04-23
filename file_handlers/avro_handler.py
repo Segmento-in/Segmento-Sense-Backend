@@ -9,9 +9,9 @@ class AvroHandler:
             import fastavro
             self.fastavro = fastavro
             self.available = True
-            print("✅ Avro Handler loaded.")
+            print("[OK] Avro Handler loaded.")
         except ImportError:
-            print("❌ fastavro not found. Please run: pip install fastavro")
+            print("[ERROR] fastavro not found. Please run: pip install fastavro")
 
     def convert_to_dataframe(self, file_bytes: bytes) -> pd.DataFrame:
         """
@@ -32,5 +32,5 @@ class AvroHandler:
                 
             return pd.DataFrame(records)
         except Exception as e:
-            print(f"⚠️ Avro Read Error: {e}")
+            print(f"[WARN] Avro Read Error: {e}")
             return pd.DataFrame()

@@ -25,9 +25,9 @@ class PiiDebertaAnalyzer:
                 aggregation_strategy="simple"
             )
             self.model_loaded = True
-            print(f"✅ DeBERTa model '{model_name}' loaded successfully.")
+            print(f"[OK] DeBERTa model '{model_name}' loaded successfully.")
         except Exception as e:
-            print(f"❌ Failed to load DeBERTa model: {e}")
+            print(f"[ERROR] Failed to load DeBERTa model: {e}")
             self.model_loaded = False
 
         # Map Kaggle/DeBERTa labels to your App's standard labels

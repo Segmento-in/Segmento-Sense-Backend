@@ -4,9 +4,9 @@ from typing import Dict, List
 class RegexScanner:
     def __init__(self):
         self.colors = {
-            "EMAIL": "#8ef", "FIRST_NAME": "#af9", "LAST_NAME": "#af9",
-            "PHONE": "#faa", "SSN": "#fca", "CREDIT_CARD": "#fea",
-            "LOCATION": "#dcf", "ORG": "#ffecb3", "DEFAULT": "#e0e0e0"
+            "EMAIL": "#88eeff33", "FIRST_NAME": "#aaff9933", "LAST_NAME": "#aaff9933",
+            "PHONE": "#ffaaaa33", "SSN": "#ffccaa33", "CREDIT_CARD": "#ffeeaa33",
+            "LOCATION": "#ddccff33", "ORG": "#ffecb333", "DEFAULT": "#e0e0e033"
         }
         
         self.patterns: Dict[str, str] = {

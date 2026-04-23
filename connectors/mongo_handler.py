@@ -6,10 +6,10 @@ class MongoHandler:
         try:
             import pymongo
             self.pymongo = pymongo
-            print("✅ MongoDB Handler loaded.")
+            print("[OK] MongoDB Handler loaded.")
         except ImportError:
             self.pymongo = None
-            print("❌ PyMongo not installed.")
+            print("[ERROR] PyMongo not installed.")
 
     def fetch_data(self, host, port, db, user, pw, collection):
         if not self.pymongo:
@@ -41,5 +41,5 @@ class MongoHandler:
             return pd.json_normalize(data)
             
         except Exception as e:
-            print(f"❌ Mongo Error: {e}")
+            print(f"[ERROR] Mongo Error: {e}")
             return pd.DataFrame()
