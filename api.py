@@ -108,9 +108,10 @@ def validate_file_size(file: UploadFile):
         )
     return size
 
-def format_pii_response(df: pd.DataFrame, source_df: pd.DataFrame = None, text: str = None) -> Dict:
+def format_pii_response(df: pd.DataFrame, source_df: pd.DataFrame = None, text: str = None,
+                        selected_models: list = None) -> Dict:
     """Format PII analysis response"""
-    count_df = classifier.get_pii_counts_dataframe(df) if source_df is not None else classifier.get_pii_counts(text)
+    count_df = classifier.get_pii_counts_dataframe(df, selected_models) if source_df is not None else classifier.get_pii_counts(text, selected_models)
     
     response = {
         "pii_counts": count_df.fillna("").to_dict(orient="records") if not count_df.empty else [],
@@ -124,30 +125,57 @@ def format_pii_response(df: pd.DataFrame, source_df: pd.DataFrame = None, text: 
     
     # Add inspector results if text provided
     if text:
-        inspector_df = classifier.run_full_inspection(text)
+        inspector_df = classifier.run_full_inspection(text, selected_models)
         if not inspector_df.empty:
             response["inspector"] = inspector_df.fillna("").to_dict(orient="records")
     
     return response
 
+# ==================== MODEL CATALOGUE ENDPOINT ====================
+
+@app.get("/api/models")
+async def get_available_models():
+    """
+    Returns the full list of available PII detection models,
+    separated into always-on and lazy-loaded categories.
+    """
+    return JSONResponse(content={
+        "always_on": [
+            {"key": "regex",    "label": "🛠️ Regex",     "description": "Fast rule-based pattern matching (emails, phones, SSNs)"},
+            {"key": "nltk",     "label": "🧠 NLTK",      "description": "Statistical NLP chunker for names and locations"},
+            {"key": "spacy",    "label": "🤖 SpaCy",     "description": "Industrial-strength NER (en_core_web_lg)"},
+            {"key": "presidio", "label": "🛡️ Presidio",  "description": "Microsoft Presidio — enterprise PII analyser"},
+            {"key": "gliner",   "label": "🦅 GLiNER",    "description": "Zero-shot entity extraction (urchade/gliner_small-v2.1)"},
+            {"key": "deberta",  "label": "🚀 DeBERTa",   "description": "Kaggle-winning DeBERTa V3 fine-tuned for PII"},
+        ],
+        "lazy_loaded": [
+            {"key": "pasteproof",    "label": "📋 Pasteproof",     "description": "joneauxedgar/pasteproof-pii-detector-v2 — broad PII detection"},
+            {"key": "piiranha",      "label": "🐟 Piiranha",       "description": "iiiorg/piiranha-v1 — personal information specialist"},
+            {"key": "nvidia_gliner", "label": "⚡ NVIDIA-GLiNER",  "description": "nvidia/gliner-PII — enterprise-grade zero-shot NER"},
+            {"key": "mmbert",        "label": "🌐 mmbert32k",      "description": "llm-semantic-router/mmbert32k — 32k-context document scanner"},
+        ]
+    })
+
 # ==================== FILE UPLOAD ENDPOINTS ====================
 
 @app.post("/api/upload/csv")
-async def upload_csv(file: UploadFile = File(...), mask: bool = Form(False)):
+async def upload_csv(file: UploadFile = File(...), mask: bool = Form(False),
+                     selected_models: str = Form("")):
     """Upload and analyze CSV file"""
     try:
         validate_file_size(file)
         content = await file.read()
         df = pd.read_csv(io.BytesIO(content))
         
+        models = [m.strip() for m in selected_models.split(",") if m.strip()] or None
         text_sample = df.head(10).to_string()
-        response = format_pii_response(df, df, text_sample)
+        response = format_pii_response(df, df, text_sample, models)
         
         if mask:
-            masked_df = classifier.mask_dataframe(df.head(50))
+            masked_df = classifier.mask_dataframe(df.head(50), models)
             response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
-            highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
+            highlighted_df = classifier.scan_dataframe_with_html(df.head(50), models)
             response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
@@ -156,20 +184,22 @@ async def upload_csv(file: UploadFile = File(...), mask: bool = Form(False)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload/json")
-async def upload_json(file: UploadFile = File(...), mask: bool = Form(False)):
+async def upload_json(file: UploadFile = File(...), mask: bool = Form(False),
+                      selected_models: str = Form("")):
     """Upload and analyze JSON file"""
     try:
         validate_file_size(file)
         df = classifier.get_json_data(file.file)
         
+        models = [m.strip() for m in selected_models.split(",") if m.strip()] or None
         text_sample = df.head(10).to_string()
-        response = format_pii_response(df, df, text_sample)
+        response = format_pii_response(df, df, text_sample, models)
         
         if mask:
-            masked_df = classifier.mask_dataframe(df.head(50))
+            masked_df = classifier.mask_dataframe(df.head(50), models)
             response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
-            highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
+            highlighted_df = classifier.scan_dataframe_with_html(df.head(50), models)
             response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
@@ -178,21 +208,23 @@ async def upload_json(file: UploadFile = File(...), mask: bool = Form(False)):
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload/parquet")
-async def upload_parquet(file: UploadFile = File(...), mask: bool = Form(False)):
+async def upload_parquet(file: UploadFile = File(...), mask: bool = Form(False),
+                          selected_models: str = Form("")):
     """Upload and analyze Parquet file"""
     try:
         validate_file_size(file)
         content = await file.read()
         df = classifier.get_parquet_data(content)
         
+        models = [m.strip() for m in selected_models.split(",") if m.strip()] or None
         text_sample = df.head(10).to_string()
-        response = format_pii_response(df, df, text_sample)
+        response = format_pii_response(df, df, text_sample, models)
         
         if mask:
-            masked_df = classifier.mask_dataframe(df.head(50))
+            masked_df = classifier.mask_dataframe(df.head(50), models)
             response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
-            highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
+            highlighted_df = classifier.scan_dataframe_with_html(df.head(50), models)
             response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
@@ -201,21 +233,23 @@ async def upload_parquet(file: UploadFile = File(...), mask: bool = Form(False))
         raise HTTPException(status_code=500, detail=str(e))
 
 @app.post("/api/upload/avro")
-async def upload_avro(file: UploadFile = File(...), mask: bool = Form(False)):
+async def upload_avro(file: UploadFile = File(...), mask: bool = Form(False),
+                       selected_models: str = Form("")):
     """Upload and analyze Apache Avro file"""
     try:
         validate_file_size(file)
         content = await file.read()
         df = classifier.get_avro_data(content)
         
+        models = [m.strip() for m in selected_models.split(",") if m.strip()] or None
         text_sample = df.head(10).to_string()
-        response = format_pii_response(df, df, text_sample)
+        response = format_pii_response(df, df, text_sample, models)
         
         if mask:
-            masked_df = classifier.mask_dataframe(df.head(50))
+            masked_df = classifier.mask_dataframe(df.head(50), models)
             response["data"] = masked_df.fillna("").to_dict(orient="records")
         else:
-            highlighted_df = classifier.scan_dataframe_with_html(df.head(50))
+            highlighted_df = classifier.scan_dataframe_with_html(df.head(50), models)
             response["data"] = highlighted_df.fillna("").to_dict(orient="records")
         
         return JSONResponse(content=response)
